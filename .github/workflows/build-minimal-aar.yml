@@ -111,23 +111,26 @@ jobs:
             make -j$(nproc) && make install
 
             # --- libvpx (static) ---
+            # libvpx's Android targets need specific cross-compile setup
             case $ABI in
-              arm64-v8a)   VPX_TARGET=arm64-android-gcc ;;
-              armeabi-v7a) VPX_TARGET=armv7-android-gcc ;;
-              x86_64)      VPX_TARGET=x86_64-android-gcc ;;
+              arm64-v8a)   VPX_TARGET=arm64-android-gcc; VPX_CROSS=aarch64-linux-android- ;;
+              armeabi-v7a) VPX_TARGET=armv7-android-gcc; VPX_CROSS=arm-linux-androideabi- ;;
+              x86_64)      VPX_TARGET=x86_64-android-gcc; VPX_CROSS=x86_64-linux-android- ;;
             esac
             cd /tmp/vpx-src
             make distclean 2>/dev/null || true
             export PATH="${TOOLCHAIN}/bin:$PATH"
-            CC="$CC" CXX="$CXX" \
+            CROSS=${VPX_CROSS} CC="${CC}" CXX="${CXX}" \
+            CFLAGS="--target=${TRIPLE}${API_LEVEL} --sysroot=${TOOLCHAIN}/sysroot" \
+            LDFLAGS="--target=${TRIPLE}${API_LEVEL} --sysroot=${TOOLCHAIN}/sysroot" \
             ./configure \
               --target=$VPX_TARGET --prefix=$PREFIX \
-              --libc="${TOOLCHAIN}/sysroot" \
-              --as=auto \
               --enable-static --disable-shared \
               --disable-examples --disable-tools --disable-docs --disable-unit-tests \
               --enable-vp9-encoder --enable-vp9-decoder \
-              --enable-vp8-encoder --enable-vp8-decoder --enable-pic
+              --enable-vp8-encoder --enable-vp8-decoder --enable-pic \
+              --extra-cflags="--target=${TRIPLE}${API_LEVEL}" \
+              --disable-neon-asm
             make -j$(nproc) && make install
 
             echo "=== $ABI deps complete: $(ls $PREFIX/lib/*.a 2>/dev/null | wc -l) static libs ==="
