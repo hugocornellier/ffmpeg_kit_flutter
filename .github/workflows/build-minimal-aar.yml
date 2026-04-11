@@ -1,0 +1,308 @@
+name: Build Minimal FFmpeg Android AAR
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build minimal FFmpeg .so files and repackage AAR
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      FFMPEG_VERSION: "n8.0.1"
+      NDK_VERSION: "27.2.12479018"
+      API_LEVEL: "24"
+      ABIS: "arm64-v8a armeabi-v7a x86_64"
+      # The original full-gpl AAR — we keep its classes.jar and libffmpegkit*.so
+      ORIG_AAR_URL: "https://repo1.maven.org/maven2/com/antonkarpenko/ffmpeg-kit-full-gpl/2.1.0/ffmpeg-kit-full-gpl-2.1.0.aar"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential nasm yasm pkg-config \
+            curl git unzip zip cmake
+
+      - name: Setup Android NDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | $SDKMANAGER --install "ndk;$NDK_VERSION" || true
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/$NDK_VERSION" >> $GITHUB_ENV
+
+      - name: Download original AAR
+        run: |
+          curl -L -o /tmp/original.aar "$ORIG_AAR_URL"
+          echo "Original AAR size: $(du -h /tmp/original.aar | cut -f1)"
+
+      - name: Clone sources
+        run: |
+          git clone --depth 1 -b $FFMPEG_VERSION https://git.ffmpeg.org/ffmpeg.git /tmp/ffmpeg-src
+          git clone --depth 1 https://code.videolan.org/videolan/x264.git /tmp/x264-src
+          git clone --depth 1 -b v1.15.0 https://chromium.googlesource.com/webm/libvpx.git /tmp/vpx-src
+          curl -L -o /tmp/freetype.tar.xz "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz"
+          curl -L -o /tmp/harfbuzz.tar.xz "https://github.com/harfbuzz/harfbuzz/releases/download/14.1.0/harfbuzz-14.1.0.tar.xz"
+          cd /tmp && tar xf freetype.tar.xz && tar xf harfbuzz.tar.xz
+
+      - name: Build dependencies for each ABI
+        run: |
+          for ABI in $ABIS; do
+            echo "=========================================="
+            echo "=== Building deps for $ABI"
+            echo "=========================================="
+
+            case $ABI in
+              arm64-v8a)   ARCH=aarch64; TRIPLE=aarch64-linux-android ;;
+              armeabi-v7a) ARCH=arm;     TRIPLE=armv7a-linux-androideabi ;;
+              x86_64)      ARCH=x86_64;  TRIPLE=x86_64-linux-android ;;
+            esac
+
+            TOOLCHAIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+            CC="${TOOLCHAIN}/bin/${TRIPLE}${API_LEVEL}-clang"
+            CXX="${TOOLCHAIN}/bin/${TRIPLE}${API_LEVEL}-clang++"
+            AR="${TOOLCHAIN}/bin/llvm-ar"
+            RANLIB="${TOOLCHAIN}/bin/llvm-ranlib"
+            PREFIX="/tmp/deps-${ABI}"
+
+            # --- freetype (static) ---
+            cd /tmp/freetype-2.13.3
+            make distclean 2>/dev/null || true
+            ./configure \
+              --host=$TRIPLE --prefix=$PREFIX \
+              --enable-static --disable-shared \
+              --with-zlib=no --with-bzip2=no --with-png=no --with-harfbuzz=no --with-brotli=no \
+              CC="$CC" AR="$AR" RANLIB="$RANLIB"
+            make -j$(nproc) && make install
+
+            # --- harfbuzz (static, minimal) ---
+            cd /tmp/harfbuzz-14.1.0
+            rm -rf build-${ABI}
+            cmake -B build-${ABI} \
+              -DCMAKE_TOOLCHAIN_FILE="${NDK_HOME}/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-${API_LEVEL} \
+              -DCMAKE_INSTALL_PREFIX=$PREFIX \
+              -DCMAKE_PREFIX_PATH=$PREFIX \
+              -DCMAKE_FIND_ROOT_PATH=$PREFIX \
+              -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+              -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
+              -DFREETYPE_LIBRARY=$PREFIX/lib/libfreetype.a \
+              -DFREETYPE_INCLUDE_DIRS=$PREFIX/include/freetype2 \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DHB_HAVE_FREETYPE=ON -DHB_HAVE_GLIB=OFF -DHB_HAVE_GOBJECT=OFF \
+              -DHB_HAVE_ICU=OFF -DHB_HAVE_CAIRO=OFF -DHB_BUILD_SUBSET=OFF
+            cmake --build build-${ABI} -j$(nproc) && cmake --install build-${ABI}
+
+            # --- x264 (static) ---
+            cd /tmp/x264-src
+            make distclean 2>/dev/null || true
+            CC="$CC" \
+            ./configure \
+              --host=$TRIPLE \
+              --cross-prefix="${TOOLCHAIN}/bin/llvm-" \
+              --sysroot="${TOOLCHAIN}/sysroot" \
+              --prefix=$PREFIX \
+              --enable-static --disable-shared --disable-cli --enable-pic
+            make -j$(nproc) && make install
+
+            # --- libvpx (static) ---
+            # libvpx needs the generic target and explicit CC/LD for Android NDK
+            case $ABI in
+              arm64-v8a)   VPX_TARGET=generic-gnu ;;
+              armeabi-v7a) VPX_TARGET=generic-gnu ;;
+              x86_64)      VPX_TARGET=generic-gnu ;;
+            esac
+            cd /tmp/vpx-src
+            make distclean 2>/dev/null || true
+            CC="${CC}" CXX="${CXX}" LD="${CC}" \
+            AS="${CC}" STRIP="${STRIP}" AR="${AR}" \
+            ./configure \
+              --target=$VPX_TARGET --prefix=$PREFIX \
+              --enable-static --disable-shared \
+              --disable-examples --disable-tools --disable-docs --disable-unit-tests \
+              --enable-vp9-encoder --enable-vp9-decoder \
+              --enable-vp8-encoder --enable-vp8-decoder --enable-pic \
+              --disable-runtime-cpu-detect
+            make -j$(nproc) && make install
+
+            echo "=== $ABI deps complete: $(ls $PREFIX/lib/*.a 2>/dev/null | wc -l) static libs ==="
+          done
+
+      - name: Build FFmpeg for each ABI
+        run: |
+          for ABI in $ABIS; do
+            echo "=========================================="
+            echo "=== Building FFmpeg for $ABI"
+            echo "=========================================="
+
+            case $ABI in
+              arm64-v8a)
+                ARCH=aarch64; TRIPLE=aarch64-linux-android
+                EXTRA_CFLAGS="-march=armv8-a"; EXTRA_FFMPEG="--enable-neon" ;;
+              armeabi-v7a)
+                ARCH=arm; TRIPLE=armv7a-linux-androideabi
+                EXTRA_CFLAGS="-march=armv7-a -mfloat-abi=softfp -mfpu=neon"; EXTRA_FFMPEG="--enable-neon" ;;
+              x86_64)
+                ARCH=x86_64; TRIPLE=x86_64-linux-android
+                EXTRA_CFLAGS=""; EXTRA_FFMPEG="" ;;
+            esac
+
+            TOOLCHAIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+            CC="${TOOLCHAIN}/bin/${TRIPLE}${API_LEVEL}-clang"
+            CXX="${TOOLCHAIN}/bin/${TRIPLE}${API_LEVEL}-clang++"
+            STRIP="${TOOLCHAIN}/bin/llvm-strip"
+            PREFIX="/tmp/ffmpeg-out-${ABI}"
+            DEPS="/tmp/deps-${ABI}"
+
+            cd /tmp/ffmpeg-src
+            make distclean 2>/dev/null || true
+
+            # Verify deps exist
+            echo "=== Checking deps for $ABI ==="
+            ls ${DEPS}/lib/libfreetype.a ${DEPS}/lib/libharfbuzz.a ${DEPS}/lib/libx264.a ${DEPS}/lib/libvpx.a
+            ls ${DEPS}/include/freetype2/freetype/freetype.h
+            ls ${DEPS}/lib/pkgconfig/freetype2.pc
+
+            # Use pkg-config wrapper that always points to our deps
+            printf '#!/bin/bash\nPKG_CONFIG_PATH="%s/lib/pkgconfig" PKG_CONFIG_LIBDIR="%s/lib/pkgconfig" PKG_CONFIG_SYSROOT_DIR="" exec pkg-config "$@"\n' "$DEPS" "$DEPS" > /tmp/pkg-config-wrapper-${ABI}.sh
+            chmod +x /tmp/pkg-config-wrapper-${ABI}.sh
+
+            ./configure \
+              --prefix=$PREFIX \
+              --cross-prefix="${TOOLCHAIN}/bin/llvm-" \
+              --sysroot="${TOOLCHAIN}/sysroot" \
+              --target-os=android --arch=$ARCH \
+              --cc="$CC" --cxx="$CXX" --strip="$STRIP" \
+              --pkg-config=/tmp/pkg-config-wrapper-${ABI}.sh \
+              --enable-cross-compile --enable-pic \
+              --enable-shared --disable-static \
+              --enable-gpl --enable-small --enable-lto \
+              --enable-jni --enable-pthreads \
+              --enable-swscale --enable-avformat --enable-avcodec --enable-avfilter \
+              --disable-everything --disable-doc --disable-programs --disable-autodetect \
+              --enable-encoder=libx264 \
+              --enable-encoder=libvpx_vp9 \
+              --enable-decoder=png \
+              --enable-decoder=wrapped_avframe \
+              --enable-muxer=mp4 \
+              --enable-muxer=webm \
+              --enable-muxer=matroska \
+              --enable-demuxer=concat \
+              --enable-demuxer=image2 \
+              --enable-filter=split \
+              --enable-filter=format \
+              --enable-filter=scale \
+              --enable-filter=crop \
+              --enable-filter=gblur \
+              --enable-filter=overlay \
+              --enable-filter=colorchannelmixer \
+              --enable-filter=color \
+              --enable-filter=drawtext \
+              --enable-libx264 \
+              --enable-libvpx \
+              --enable-libfreetype \
+              --enable-libharfbuzz \
+              --enable-protocol=file \
+              --enable-indev=lavfi \
+              --enable-zlib \
+              $EXTRA_FFMPEG \
+              --extra-cflags="-I${DEPS}/include -I${DEPS}/include/freetype2 $EXTRA_CFLAGS" \
+              --extra-ldflags="-L${DEPS}/lib" \
+              --pkg-config-flags=--static
+
+            make -j$(nproc)
+            make install
+
+            echo "=== $ABI FFmpeg libs ==="
+            ls -lh $PREFIX/lib/lib*.so
+          done
+
+      - name: Repackage AAR with minimal .so files
+        run: |
+          AAR_DIR="/tmp/aar-repack"
+          mkdir -p $AAR_DIR && cd $AAR_DIR
+
+          # Extract Java bindings, manifest, and FFmpegKit wrappers from original
+          unzip -o /tmp/original.aar \
+            classes.jar AndroidManifest.xml R.txt \
+            "META-INF/*" \
+            "jni/*/libffmpegkit.so" \
+            "jni/*/libffmpegkit_abidetect.so" \
+            "jni/*/libc++_shared.so" \
+            2>/dev/null || true
+
+          # Replace FFmpeg .so files with our minimal builds
+          for ABI in $ABIS; do
+            mkdir -p jni/$ABI
+            FFMPEG_PREFIX="/tmp/ffmpeg-out-${ABI}"
+            STRIP="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+
+            for lib in libavcodec libavfilter libavformat libavutil libswresample libswscale; do
+              # Find the actual .so (not symlinks)
+              SO=$(find $FFMPEG_PREFIX/lib -name "${lib}.so*" -not -type l | head -1)
+              if [ -n "$SO" ]; then
+                cp "$SO" jni/$ABI/${lib}.so
+                $STRIP --strip-unneeded jni/$ABI/${lib}.so
+              else
+                echo "::warning::${lib}.so not found for $ABI"
+              fi
+            done
+
+            # Copy libc++_shared.so from NDK if not already extracted from original
+            if [ ! -f "jni/$ABI/libc++_shared.so" ]; then
+              NDK_LIBCXX=$(find $NDK_HOME -name "libc++_shared.so" -path "*/$ABI/*" | head -1)
+              [ -n "$NDK_LIBCXX" ] && cp "$NDK_LIBCXX" jni/$ABI/
+            fi
+
+            echo "=== $ABI final contents ==="
+            ls -lh jni/$ABI/
+          done
+
+          # Remove ABIs we don't build (x86 — no real devices use it)
+          rm -rf jni/x86
+
+          # Remove libavdevice (we don't use device capture)
+          find jni -name "libavdevice*" -delete
+
+          # Remove NEON variant duplicates from armeabi-v7a (original AAR has these)
+          find jni/armeabi-v7a -name "*_neon*" -delete 2>/dev/null || true
+          find jni/armeabi-v7a -name "*_armv7a_neon*" -delete 2>/dev/null || true
+
+          # Package
+          zip -r /tmp/ffmpeg-kit-minimal-gpl.aar . -x ".*"
+
+          echo ""
+          echo "=========================================="
+          echo "=== SIZE COMPARISON ==="
+          echo "=========================================="
+          echo "Original (full-gpl): $(du -h /tmp/original.aar | cut -f1)"
+          echo "Minimal:             $(du -h /tmp/ffmpeg-kit-minimal-gpl.aar | cut -f1)"
+          echo ""
+          echo "=== Per-ABI breakdown ==="
+          for ABI in $ABIS; do
+            TOTAL=$(du -ch jni/$ABI/*.so | tail -1 | cut -f1)
+            echo "$ABI: $TOTAL"
+          done
+
+      - name: Upload AAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-kit-minimal-gpl
+          path: /tmp/ffmpeg-kit-minimal-gpl.aar
+          retention-days: 90
+
+      - name: Create release with AAR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete existing release if present
+          gh release delete minimal-gpl-latest --yes 2>/dev/null || true
+
+          gh release create minimal-gpl-latest \
+            --title "Minimal GPL FFmpeg AAR" \
+            --notes "Minimal FFmpeg build for AgeLapse Android. Encoders: libx264, libvpx_vp9. Filters: drawtext, overlay, scale, crop, gblur, color, format, split, colorchannelmixer. Built from FFmpeg $FFMPEG_VERSION." \
+            --latest=false \
+            /tmp/ffmpeg-kit-minimal-gpl.aar
+
