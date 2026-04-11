@@ -17,6 +17,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("$rootDir/repo") }
     }
 }
 
@@ -51,6 +52,6 @@ android {
 
     dependencies {
         implementation("androidx.annotation:annotation:1.9.1")
-        implementation(files("libs/ffmpegkit-classes.jar"))
+        implementation("com.hugocornellier:ffmpeg-kit-minimal-gpl:1.0.0")
     }
 }
