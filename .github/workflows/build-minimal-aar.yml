@@ -169,10 +169,7 @@ jobs:
             ls ${DEPS}/lib/pkgconfig/freetype2.pc
 
             # Use pkg-config wrapper that always points to our deps
-            cat > /tmp/pkg-config-wrapper-${ABI}.sh << PKGEOF
-#!/bin/bash
-PKG_CONFIG_PATH="${DEPS}/lib/pkgconfig" PKG_CONFIG_LIBDIR="${DEPS}/lib/pkgconfig" PKG_CONFIG_SYSROOT_DIR="" exec pkg-config "\$@"
-PKGEOF
+            printf '#!/bin/bash\nPKG_CONFIG_PATH="%s/lib/pkgconfig" PKG_CONFIG_LIBDIR="%s/lib/pkgconfig" PKG_CONFIG_SYSROOT_DIR="" exec pkg-config "$@"\n' "$DEPS" "$DEPS" > /tmp/pkg-config-wrapper-${ABI}.sh
             chmod +x /tmp/pkg-config-wrapper-${ABI}.sh
 
             ./configure \
