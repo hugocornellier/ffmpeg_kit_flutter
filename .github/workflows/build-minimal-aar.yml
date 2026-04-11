@@ -1,6 +1,9 @@
 name: Build Minimal FFmpeg Android AAR
 
 on:
+  push:
+    paths:
+      - '.github/workflows/build-minimal-aar.yml'
   workflow_dispatch:
 
 jobs:
