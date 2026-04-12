@@ -47,10 +47,6 @@ jobs:
           curl -L -o /tmp/harfbuzz.tar.xz "https://github.com/harfbuzz/harfbuzz/releases/download/14.1.0/harfbuzz-14.1.0.tar.xz"
           cd /tmp && tar xf freetype.tar.xz && tar xf harfbuzz.tar.xz
 
-      - name: Clone FFmpegKit wrapper source
-        run: |
-          git clone --depth 1 https://github.com/arthenica/ffmpeg-kit.git /tmp/ffmpeg-kit-src
-
       - name: Build dependencies for each ABI
         run: |
           for ABI in $ABIS; do
@@ -229,87 +225,26 @@ jobs:
             ls -lh $PREFIX/lib/lib*.so
           done
 
-      - name: Build libffmpegkit.so wrapper
-        run: |
-          TOOLCHAIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-
-          # Copy and patch wrapper source files
-          mkdir -p /tmp/wrapper-src
-          FFMPEGKIT_ANDROID_SRC="/tmp/ffmpeg-kit-src/android/ffmpeg-kit-android-lib/src/main/cpp"
-          cp ${FFMPEGKIT_ANDROID_SRC}/*.c /tmp/wrapper-src/ 2>/dev/null || true
-          cp ${FFMPEGKIT_ANDROID_SRC}/*.h /tmp/wrapper-src/ 2>/dev/null || true
-
-          # Rename JNI package from arthenica to antonkarpenko
-          find /tmp/wrapper-src -type f | xargs sed -i \
-            's|com/arthenica/ffmpegkit|com/antonkarpenko/ffmpegkit|g'
-          find /tmp/wrapper-src -type f | xargs sed -i \
-            's|Java_com_arthenica_ffmpegkit_|Java_com_antonkarpenko_ffmpegkit_|g'
-
-          for ABI in $ABIS; do
-            echo "=========================================="
-            echo "=== Building libffmpegkit.so for $ABI"
-            echo "=========================================="
-
-            case $ABI in
-              arm64-v8a)   TARGET=aarch64-linux-android${API_LEVEL} ;;
-              armeabi-v7a) TARGET=armv7a-linux-androideabi${API_LEVEL} ;;
-              x86_64)      TARGET=x86_64-linux-android${API_LEVEL} ;;
-            esac
-
-            CC="${TOOLCHAIN}/bin/${TARGET}-clang"
-            STRIP="${TOOLCHAIN}/bin/llvm-strip"
-            FFMPEG_PREFIX="/tmp/ffmpeg-out-${ABI}"
-            WRAPPER_OUT="/tmp/wrapper-out-${ABI}"
-            mkdir -p $WRAPPER_OUT
-
-            $CC \
-              -std=gnu11 -O2 -fPIC -shared -pthread \
-              -ffunction-sections -fdata-sections \
-              -DANDROID -D__ANDROID_API__=$API_LEVEL -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 \
-              -I/tmp/ffmpeg-config-${ABI} \
-              -I/tmp/wrapper-src \
-              -I/tmp/ffmpeg-src \
-              -I${FFMPEG_PREFIX}/include \
-              /tmp/wrapper-src/ffmpegkit.c \
-              /tmp/wrapper-src/ffmpegkit_exception.c \
-              /tmp/wrapper-src/ffprobekit.c \
-              /tmp/wrapper-src/fftools_cmdutils.c \
-              /tmp/wrapper-src/fftools_ffmpeg.c \
-              /tmp/wrapper-src/fftools_ffmpeg_demux.c \
-              /tmp/wrapper-src/fftools_ffmpeg_filter.c \
-              /tmp/wrapper-src/fftools_ffmpeg_hw.c \
-              /tmp/wrapper-src/fftools_ffmpeg_mux.c \
-              /tmp/wrapper-src/fftools_ffmpeg_mux_init.c \
-              /tmp/wrapper-src/fftools_ffmpeg_opt.c \
-              /tmp/wrapper-src/fftools_ffprobe.c \
-              /tmp/wrapper-src/fftools_objpool.c \
-              /tmp/wrapper-src/fftools_opt_common.c \
-              /tmp/wrapper-src/fftools_sync_queue.c \
-              /tmp/wrapper-src/fftools_thread_queue.c \
-              -L${FFMPEG_PREFIX}/lib \
-              -Wl,--no-undefined \
-              -Wl,--gc-sections \
-              -Wl,-soname,libffmpegkit.so \
-              -Wl,--start-group \
-              -lavfilter -lavformat -lavcodec -lavdevice -lswresample -lswscale -lavutil \
-              -Wl,--end-group \
-              -llog -landroid -lz -ldl -lm \
-              -o $WRAPPER_OUT/libffmpegkit.so
-
-            $STRIP --strip-unneeded $WRAPPER_OUT/libffmpegkit.so
-            echo "$ABI wrapper: $(ls -lh $WRAPPER_OUT/libffmpegkit.so | awk '{print $5}')"
-          done
+      # NOTE: libffmpegkit.so is NOT rebuilt from source — the original AAR's
+      # wrapper was compiled from a patched FFmpeg 8 fork (com.antonkarpenko)
+      # whose source isn't public. The original wrapper uses only FFmpeg's
+      # stable public API, so it's ABI-compatible with our minimal .so files
+      # as long as all 7 libraries (including libavdevice) are present.
 
       - name: Repackage AAR with minimal .so files
         run: |
           AAR_DIR="/tmp/aar-repack"
           mkdir -p $AAR_DIR && cd $AAR_DIR
 
-          # Extract Java bindings, manifest, and abidetect wrapper from original
+          # Extract Java bindings, manifest, and wrapper libs from original AAR.
+          # libffmpegkit.so uses only FFmpeg's stable public API — ABI-compatible
+          # with our minimal .so files as long as all 7 libs are present.
           unzip -o /tmp/original.aar \
             classes.jar AndroidManifest.xml R.txt \
             "META-INF/*" \
+            "jni/*/libffmpegkit.so" \
             "jni/*/libffmpegkit_abidetect.so" \
+            "jni/*/libc++_shared.so" \
             2>/dev/null || true
 
           # Replace FFmpeg .so files with our minimal builds
@@ -329,12 +264,8 @@ jobs:
               fi
             done
 
-            # Use our compiled wrapper instead of the original
-            cp /tmp/wrapper-out-${ABI}/libffmpegkit.so jni/$ABI/libffmpegkit.so
-
-            # Copy libc++_shared.so from NDK
-            NDK_LIBCXX=$(find $NDK_HOME -name "libc++_shared.so" -path "*/$ABI/*" | head -1)
-            [ -n "$NDK_LIBCXX" ] && cp "$NDK_LIBCXX" jni/$ABI/
+            # libffmpegkit.so, libffmpegkit_abidetect.so, and libc++_shared.so
+            # are already extracted from the original AAR above.
 
             echo "=== $ABI final contents ==="
             ls -lh jni/$ABI/
