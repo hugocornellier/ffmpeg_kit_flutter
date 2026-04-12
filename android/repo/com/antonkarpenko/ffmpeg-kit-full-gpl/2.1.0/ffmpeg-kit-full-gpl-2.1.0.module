@@ -35,11 +35,11 @@
         {
           "name": "ffmpeg-kit-full-gpl-2.1.0.aar",
           "url": "ffmpeg-kit-full-gpl-2.1.0.aar",
-          "size": 11937125,
-          "sha512": "3976e161aed3181af08932fec677fdb819fa1373403eba81eb75369f7059ba1d5d84ee2fc620b572af3f8b566c0a568ac067c1fc194ddcbc94264197fe3a2535",
-          "sha256": "66fea12c162fc2f9da146d0185ffb942c8e29af3b7b45cbd639db745fb8feb51",
-          "sha1": "b8069d4111ff1d2878bc314090b01d3df110b6ed",
-          "md5": "8285086f0f1ad3c53da216e0fcc4b1e1"
+          "size": 12003000,
+          "sha512": "a943caedeab8f223455d6ba81545757ab9c34a386c60bb838ba7e3a4ba2fe456e5f63f275d3699ca4a54dee333ae34264aeb2a2b67cad2e56f4d8df3510d714d",
+          "sha256": "c9792a0e74065689f7b1f76546d8e90630e3a604228444d719c201aa7b84d22b",
+          "sha1": "5cd8d5c6d56c3ac22fae8fae52f0db82dda32543",
+          "md5": "628ee541b7df3c45efe1dc899fea138b"
         }
       ]
     },
@@ -64,11 +64,11 @@
         {
           "name": "ffmpeg-kit-full-gpl-2.1.0.aar",
           "url": "ffmpeg-kit-full-gpl-2.1.0.aar",
-          "size": 11937125,
-          "sha512": "3976e161aed3181af08932fec677fdb819fa1373403eba81eb75369f7059ba1d5d84ee2fc620b572af3f8b566c0a568ac067c1fc194ddcbc94264197fe3a2535",
-          "sha256": "66fea12c162fc2f9da146d0185ffb942c8e29af3b7b45cbd639db745fb8feb51",
-          "sha1": "b8069d4111ff1d2878bc314090b01d3df110b6ed",
-          "md5": "8285086f0f1ad3c53da216e0fcc4b1e1"
+          "size": 12003000,
+          "sha512": "a943caedeab8f223455d6ba81545757ab9c34a386c60bb838ba7e3a4ba2fe456e5f63f275d3699ca4a54dee333ae34264aeb2a2b67cad2e56f4d8df3510d714d",
+          "sha256": "c9792a0e74065689f7b1f76546d8e90630e3a604228444d719c201aa7b84d22b",
+          "sha1": "5cd8d5c6d56c3ac22fae8fae52f0db82dda32543",
+          "md5": "628ee541b7df3c45efe1dc899fea138b"
         }
       ]
     },
