@@ -13,9 +13,11 @@ buildscript {
     }
 }
 
+def pluginRepoDir = "${projectDir}/repo"
+
 allprojects {
     repositories {
-        maven { url = uri("${project.projectDir}/repo") }
+        maven { url = uri(pluginRepoDir) }
         google()
         mavenCentral()
     }
