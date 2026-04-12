@@ -13,11 +13,14 @@ buildscript {
     }
 }
 
+// Store the plugin's repo path before allprojects changes the project context
+def ffmpegLocalRepo = file("${projectDir}/repo")
+
 allprojects {
     repositories {
         exclusiveContent {
             forRepository {
-                maven { url = uri("${project.projectDir}/repo") }
+                maven { url = uri(ffmpegLocalRepo) }
             }
             filter {
                 includeGroup("com.antonkarpenko")
