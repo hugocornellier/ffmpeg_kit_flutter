@@ -15,7 +15,14 @@ buildscript {
 
 allprojects {
     repositories {
-        maven { url = uri("${project.projectDir}/repo") }
+        exclusiveContent {
+            forRepository {
+                maven { url = uri("${project.projectDir}/repo") }
+            }
+            filter {
+                includeGroup("com.antonkarpenko")
+            }
+        }
         google()
         mavenCentral()
     }
