@@ -1,0 +1,116 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "com.antonkarpenko",
+    "module": "ffmpeg-kit-full-gpl",
+    "version": "2.1.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.14.3"
+    }
+  },
+  "variants": [
+    {
+      "name": "releaseVariantReleaseApiPublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib-jdk8",
+          "version": {
+            "requires": "1.8.22"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "ffmpeg-kit-full-gpl-2.1.0.aar",
+          "url": "ffmpeg-kit-full-gpl-2.1.0.aar",
+          "size": 11937125,
+          "sha512": "3976e161aed3181af08932fec677fdb819fa1373403eba81eb75369f7059ba1d5d84ee2fc620b572af3f8b566c0a568ac067c1fc194ddcbc94264197fe3a2535",
+          "sha256": "66fea12c162fc2f9da146d0185ffb942c8e29af3b7b45cbd639db745fb8feb51",
+          "sha1": "b8069d4111ff1d2878bc314090b01d3df110b6ed",
+          "md5": "8285086f0f1ad3c53da216e0fcc4b1e1"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseRuntimePublication",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.libraryelements": "aar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "org.jetbrains.kotlin",
+          "module": "kotlin-stdlib-jdk8",
+          "version": {
+            "requires": "1.8.22"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "ffmpeg-kit-full-gpl-2.1.0.aar",
+          "url": "ffmpeg-kit-full-gpl-2.1.0.aar",
+          "size": 11937125,
+          "sha512": "3976e161aed3181af08932fec677fdb819fa1373403eba81eb75369f7059ba1d5d84ee2fc620b572af3f8b566c0a568ac067c1fc194ddcbc94264197fe3a2535",
+          "sha256": "66fea12c162fc2f9da146d0185ffb942c8e29af3b7b45cbd639db745fb8feb51",
+          "sha1": "b8069d4111ff1d2878bc314090b01d3df110b6ed",
+          "md5": "8285086f0f1ad3c53da216e0fcc4b1e1"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseSourcePublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "ffmpeg-kit-full-gpl-2.1.0-sources.jar",
+          "url": "ffmpeg-kit-full-gpl-2.1.0-sources.jar",
+          "size": 47404,
+          "sha512": "5f2ef3a4654c5b88926bfee5e4af66bec9c96a7332120c9bc0709ec184b4ccbdf6255774c5c25d8d8fab70eefd34597b2e32ee7b0518e9250101838726bd519f",
+          "sha256": "ca9d170e02a39f7056f8b448460f85f4be4997bbfbed0a468ce599efe84cd5b2",
+          "sha1": "2570797229e6c4c93fc674bf55d59dd0f3048d1c",
+          "md5": "bcae43499a53a2e5d24ac8cd6a0d6e49"
+        }
+      ]
+    },
+    {
+      "name": "releaseVariantReleaseJavaDocPublication",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "ffmpeg-kit-full-gpl-2.1.0-javadoc.jar",
+          "url": "ffmpeg-kit-full-gpl-2.1.0-javadoc.jar",
+          "size": 416461,
+          "sha512": "ea41a4b818170f424e482d85152f5f654dc9c8620bc5c29af417d958451a63a538779cfcad7c74ca99803577729b19a1cf0e241e2a12e23ea4d5d2d642035450",
+          "sha256": "f327da9d2a4f4b659a9894298aa734426e141efe9fa37e3e9a0a0c571934e51b",
+          "sha1": "ca01660d06eb744e94905b22a095844da12d362d",
+          "md5": "514d9c1ba35c47b460382ec97436f44f"
+        }
+      ]
+    }
+  ]
+}
