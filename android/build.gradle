@@ -13,18 +13,10 @@ buildscript {
     }
 }
 
-def pluginRepoDir = "${projectDir}/repo"
-
 allprojects {
     repositories {
-        maven {
-            url = uri(pluginRepoDir)
-            content { includeGroup("com.antonkarpenko") }
-        }
         google()
-        mavenCentral {
-            content { excludeGroup("com.antonkarpenko") }
-        }
+        mavenCentral()
     }
 }
 
