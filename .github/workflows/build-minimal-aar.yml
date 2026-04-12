@@ -225,26 +225,137 @@ jobs:
             ls -lh $PREFIX/lib/lib*.so
           done
 
-      # NOTE: libffmpegkit.so is NOT rebuilt from source — the original AAR's
-      # wrapper was compiled from a patched FFmpeg 8 fork (com.antonkarpenko)
-      # whose source isn't public. The original wrapper uses only FFmpeg's
-      # stable public API, so it's ABI-compatible with our minimal .so files
-      # as long as all 7 libraries (including libavdevice) are present.
+      - name: Clone and patch FFmpegKit wrapper source
+        run: |
+          git clone --depth 1 https://github.com/arthenica/ffmpeg-kit.git /tmp/ffmpeg-kit-src
+          mkdir -p /tmp/wrapper-src
+          cp /tmp/ffmpeg-kit-src/android/ffmpeg-kit-android-lib/src/main/cpp/*.c /tmp/wrapper-src/
+          cp /tmp/ffmpeg-kit-src/android/ffmpeg-kit-android-lib/src/main/cpp/*.h /tmp/wrapper-src/
+
+          cd /tmp/wrapper-src
+
+          # --- JNI package rename: arthenica -> antonkarpenko ---
+          find . -type f | xargs sed -i 's|com/arthenica/ffmpegkit|com/antonkarpenko/ffmpegkit|g'
+          find . -type f | xargs sed -i 's|Java_com_arthenica_ffmpegkit_|Java_com_antonkarpenko_ffmpegkit_|g'
+
+          # --- FFmpeg 6->8 API migration patches ---
+
+          # 1. Remove SAF calls (custom FFmpegKit patch, not in vanilla FFmpeg)
+          sed -i '/av_set_saf_open/d; /av_set_saf_close/d' ffmpegkit.c
+
+          # 2. Add missing #include <string.h> to ffprobekit.c
+          sed -i '/#include <sys\/stat.h>/a #include <string.h>' ffprobekit.c
+
+          # 3. AVFrame.key_frame -> AV_FRAME_FLAG_KEY (removed in FFmpeg 7)
+          sed -i 's/in_picture->key_frame == 1/!!(in_picture->flags \& AV_FRAME_FLAG_KEY)/g' fftools_ffmpeg.c
+          sed -i 's/next_picture->key_frame/!!(next_picture->flags \& AV_FRAME_FLAG_KEY)/g' fftools_ffmpeg.c
+          sed -i 's/decoded_frame->key_frame/!!(decoded_frame->flags \& AV_FRAME_FLAG_KEY)/g' fftools_ffmpeg.c
+          sed -i 's/frame->key_frame/!!(frame->flags \& AV_FRAME_FLAG_KEY)/g' fftools_ffprobe.c
+
+          # 4. AVFrame.interlaced_frame -> AV_FRAME_FLAG_INTERLACED
+          sed -i 's/frame->interlaced_frame/!!(frame->flags \& AV_FRAME_FLAG_INTERLACED)/g' fftools_ffmpeg.c fftools_ffprobe.c
+
+          # 5. AVFrame.top_field_first reads -> AV_FRAME_FLAG_TOP_FIELD_FIRST
+          #    Assignments need special handling (can't sed an = expression generically)
+          #    For reads in conditionals and print statements:
+          sed -i 's/frame->top_field_first ? /((frame->flags \& AV_FRAME_FLAG_TOP_FIELD_FIRST)) ? /g' fftools_ffmpeg.c
+          sed -i 's/frame->top_field_first/!!(frame->flags \& AV_FRAME_FLAG_TOP_FIELD_FIRST)/g' fftools_ffprobe.c
+
+          # 5b. AVFrame.top_field_first ASSIGNMENTS in fftools_ffmpeg.c
+          #   Old: decoded_frame->top_field_first = ist->top_field_first;
+          #   New: use flags
+          sed -i 's/decoded_frame->top_field_first = ist->top_field_first;/if (ist->top_field_first > 0) decoded_frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST; else if (ist->top_field_first == 0) decoded_frame->flags \&= ~AV_FRAME_FLAG_TOP_FIELD_FIRST;/g' fftools_ffmpeg.c
+          sed -i 's/frame->top_field_first = !!ost->top_field_first;/if (ost->top_field_first > 0) frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST; else if (ost->top_field_first == 0) frame->flags \&= ~AV_FRAME_FLAG_TOP_FIELD_FIRST;/g' fftools_ffmpeg.c
+
+          # 6. AVCodecContext.ticks_per_frame -> hardcoded 2 (removed in FFmpeg 7)
+          sed -i 's/ist->dec_ctx->ticks_per_frame/2/g' fftools_ffmpeg.c
+
+          # 7. AVFrame.pkt_duration -> AVFrame.duration (renamed in FFmpeg 7)
+          sed -i 's/frame->pkt_duration/frame->duration/g' fftools_ffprobe.c
+
+          # 8. AVFrame.pkt_pos and pkt_size -> removed, use -1
+          sed -i 's/frame->pkt_pos/-1/g' fftools_ffprobe.c
+          sed -i 's/frame->pkt_size/-1/g' fftools_ffprobe.c
+
+          echo "=== Patches applied. Verifying no remaining references ==="
+          if grep -rn 'key_frame\|top_field_first\|interlaced_frame\|ticks_per_frame\|pkt_duration\|pkt_pos\b\|pkt_size\b' *.c | grep -v 'force_key_frame\|dropped_keyframe\|OPT\|OFFSET\|opt_name\|ff_dlog\|pkt_size_t\|KEY\|INTERLACED\|TOP_FIELD\|duration\b\|ist->top_field_first\|ost->top_field_first\|\.pkt_size\|muxing_queue\|parse_forced'; then
+            echo "::warning::Some deprecated references may remain — review above"
+          else
+            echo "All deprecated references patched successfully"
+          fi
+
+      - name: Build libffmpegkit.so for each ABI
+        run: |
+          TOOLCHAIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+
+          for ABI in $ABIS; do
+            echo "=========================================="
+            echo "=== Building libffmpegkit.so for $ABI"
+            echo "=========================================="
+
+            case $ABI in
+              arm64-v8a)   TARGET=aarch64-linux-android${API_LEVEL} ;;
+              armeabi-v7a) TARGET=armv7a-linux-androideabi${API_LEVEL} ;;
+              x86_64)      TARGET=x86_64-linux-android${API_LEVEL} ;;
+            esac
+
+            CC="${TOOLCHAIN}/bin/${TARGET}-clang"
+            STRIP="${TOOLCHAIN}/bin/llvm-strip"
+            FFMPEG_PREFIX="/tmp/ffmpeg-out-${ABI}"
+            WRAPPER_OUT="/tmp/wrapper-out-${ABI}"
+            mkdir -p $WRAPPER_OUT
+
+            $CC \
+              -std=gnu11 -O2 -fPIC -shared -pthread \
+              -ffunction-sections -fdata-sections \
+              -Wno-unused-function -Wno-deprecated-declarations \
+              -DANDROID -D__ANDROID_API__=$API_LEVEL -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 \
+              -DFFMPEG_KIT_BUILD_DATE=$(date +%Y%m%d) \
+              -I/tmp/ffmpeg-config-${ABI} \
+              -I/tmp/wrapper-src \
+              -I/tmp/ffmpeg-src \
+              -I${FFMPEG_PREFIX}/include \
+              /tmp/wrapper-src/ffmpegkit.c \
+              /tmp/wrapper-src/ffmpegkit_exception.c \
+              /tmp/wrapper-src/ffprobekit.c \
+              /tmp/wrapper-src/fftools_cmdutils.c \
+              /tmp/wrapper-src/fftools_ffmpeg.c \
+              /tmp/wrapper-src/fftools_ffmpeg_demux.c \
+              /tmp/wrapper-src/fftools_ffmpeg_filter.c \
+              /tmp/wrapper-src/fftools_ffmpeg_hw.c \
+              /tmp/wrapper-src/fftools_ffmpeg_mux.c \
+              /tmp/wrapper-src/fftools_ffmpeg_mux_init.c \
+              /tmp/wrapper-src/fftools_ffmpeg_opt.c \
+              /tmp/wrapper-src/fftools_ffprobe.c \
+              /tmp/wrapper-src/fftools_objpool.c \
+              /tmp/wrapper-src/fftools_opt_common.c \
+              /tmp/wrapper-src/fftools_sync_queue.c \
+              /tmp/wrapper-src/fftools_thread_queue.c \
+              -L${FFMPEG_PREFIX}/lib \
+              -Wl,--no-undefined \
+              -Wl,--gc-sections \
+              -Wl,-soname,libffmpegkit.so \
+              -Wl,--start-group \
+              -lavfilter -lavformat -lavcodec -lavdevice -lswresample -lswscale -lavutil \
+              -Wl,--end-group \
+              -llog -landroid -lz -ldl -lm \
+              -o $WRAPPER_OUT/libffmpegkit.so
+
+            $STRIP --strip-unneeded $WRAPPER_OUT/libffmpegkit.so
+            echo "$ABI wrapper: $(ls -lh $WRAPPER_OUT/libffmpegkit.so | awk '{print $5}')"
+          done
 
       - name: Repackage AAR with minimal .so files
         run: |
           AAR_DIR="/tmp/aar-repack"
           mkdir -p $AAR_DIR && cd $AAR_DIR
 
-          # Extract Java bindings, manifest, and wrapper libs from original AAR.
-          # libffmpegkit.so uses only FFmpeg's stable public API — ABI-compatible
-          # with our minimal .so files as long as all 7 libs are present.
+          # Extract only Java bindings, manifest, and abidetect from original AAR.
+          # libffmpegkit.so is rebuilt from patched source above.
           unzip -o /tmp/original.aar \
             classes.jar AndroidManifest.xml R.txt \
             "META-INF/*" \
-            "jni/*/libffmpegkit.so" \
             "jni/*/libffmpegkit_abidetect.so" \
-            "jni/*/libc++_shared.so" \
             2>/dev/null || true
 
           # Replace FFmpeg .so files with our minimal builds
@@ -264,8 +375,12 @@ jobs:
               fi
             done
 
-            # libffmpegkit.so, libffmpegkit_abidetect.so, and libc++_shared.so
-            # are already extracted from the original AAR above.
+            # Use our compiled wrapper (built against minimal FFmpeg)
+            cp /tmp/wrapper-out-${ABI}/libffmpegkit.so jni/$ABI/libffmpegkit.so
+
+            # Copy libc++_shared.so from NDK
+            NDK_LIBCXX=$(find $NDK_HOME -name "libc++_shared.so" -path "*/$ABI/*" | head -1)
+            [ -n "$NDK_LIBCXX" ] && cp "$NDK_LIBCXX" jni/$ABI/
 
             echo "=== $ABI final contents ==="
             ls -lh jni/$ABI/
