@@ -13,11 +13,8 @@ buildscript {
     }
 }
 
-def pluginRepoDir = "${projectDir}/repo"
-
 allprojects {
     repositories {
-        maven { url = uri(pluginRepoDir) }
         google()
         mavenCentral()
     }
@@ -55,5 +52,18 @@ android {
     dependencies {
         implementation("androidx.annotation:annotation:1.9.1")
         implementation("com.antonkarpenko:ffmpeg-kit-full-gpl:2.1.0")
+    }
+
+    // Our jniLibs/ contains minimal FFmpeg .so files.
+    // The Maven AAR also contains full-gpl .so files.
+    // pickFirsts ensures only one copy of each .so is included —
+    // jniLibs takes precedence over AAR-provided native libs.
+    packagingOptions {
+        jniLibs {
+            pickFirsts += ["**/libavcodec.so", "**/libavfilter.so", "**/libavformat.so",
+                           "**/libavutil.so", "**/libswresample.so", "**/libswscale.so",
+                           "**/libavdevice.so", "**/libffmpegkit.so", "**/libffmpegkit_abidetect.so",
+                           "**/libc++_shared.so"]
+        }
     }
 }
